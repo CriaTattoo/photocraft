@@ -3829,7 +3829,7 @@ pub(crate) fn color_readout(ui: &mut egui::Ui, id: egui::Id, color: &mut [f32; 4
         let mut rgb = false;
         for (label, v) in [("R", &mut r), ("G", &mut g), ("B", &mut b)] {
             // Keep a channel label with its field when a narrow panel wraps the row.
-            ui.horizontal(|ui| {
+            ui.allocate_ui_with_layout(vec2(54.0, 24.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.label(RichText::new(label).font(theme::mono(11.0)).color(t.text_faint));
                 rgb |= widgets::value_field(ui, v, 0.0..=255.0, "", 38.0).changed();
             });
