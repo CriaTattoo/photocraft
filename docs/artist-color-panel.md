@@ -21,7 +21,8 @@ The gesture stays with the control where it started, even if the pointer crosses
   of every intermediate sample. Click a swatch to reuse it; **+** keeps the current colour explicitly.
 - The circular selector grows with the panel while preserving its shape. The layout reserves
   the editable footer first and shrinks the selector in short panels, keeping HEX/RGB, HSB and
-  recent swatches visible without scrolling the entire panel. The rectangular selector also
+  recent swatches visible without scrolling the entire panel. Short, wide panels place the
+  selector beside the controls; taller panels place the controls below it. The rectangular selector also
   uses the remaining height. Recent swatches use a single compact row.
 - The inner twelve-colour ring has wider segments and matching hit areas for easier clicking.
 

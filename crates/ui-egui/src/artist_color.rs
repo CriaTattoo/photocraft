@@ -103,15 +103,28 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let observed_id = ui.id().with(("artist-observed-color", background));
     let observed: Option<[f32; 4]> = ui.data(|d| d.get_temp(observed_id));
     let remaining = ui.available_rect_before_wrap().intersect(area);
+    if !remaining.is_positive() {
+        return;
+    }
     let width = remaining.width().max(1.0);
     let numeric_hsb = remaining.height() < 220.0;
-    let readout_height = if width >= 280.0 { 24.0 } else { 52.0 };
+    let horizontal = remaining.height() < 180.0 && width >= 260.0;
+    let controls_width = if horizontal { 168.0 } else { width };
+    let readout_height = if controls_width >= 280.0 { 24.0 } else { 52.0 };
     let sliders_height = if app.ui.color_panel.sliders { if numeric_hsb { 24.0 } else { 76.0 } } else { 0.0 };
     let recent_height = if app.ui.color_panel.show_recent { 24.0 } else { 0.0 };
     let footer_height: f32 = readout_height + sliders_height + recent_height + 8.0;
     let selector_height = (remaining.height() - footer_height).max(0.0);
-    let selector_rect = Rect::from_min_size(remaining.min, vec2(width, selector_height));
-    let footer_rect = Rect::from_min_max(egui::pos2(remaining.left(), selector_rect.bottom()), remaining.max);
+    let selector_rect = if horizontal {
+        Rect::from_min_size(remaining.min, vec2((width - controls_width - 6.0).max(1.0), remaining.height().max(0.0)))
+    } else {
+        Rect::from_min_size(remaining.min, vec2(width, selector_height))
+    };
+    let footer_rect = if horizontal {
+        Rect::from_min_max(egui::pos2(selector_rect.right() + 6.0, remaining.top()), remaining.max)
+    } else {
+        Rect::from_min_max(egui::pos2(remaining.left(), selector_rect.bottom()), remaining.max)
+    };
     let hue_key = Id::new(("color-field-hue", background));
     if selector_rect.height() > 1.0 {
         let mut selector_ui = ui.new_child(egui::UiBuilder::new().id_salt("color-selector").max_rect(selector_rect));
@@ -126,7 +139,7 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             } else if hsv.s < 0.01 {
                 hsv.h = last.0;
             }
-            let diameter = width.min(selector_rect.height());
+            let diameter = selector_rect.width().min(selector_rect.height());
             selector_ui.add_space(((selector_rect.height() - diameter) * 0.5).max(0.0));
             if wheel(
                 &mut selector_ui,

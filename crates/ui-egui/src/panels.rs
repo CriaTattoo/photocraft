@@ -2150,7 +2150,8 @@ pub(crate) fn hsb_sliders_sized(app: &mut PhotocraftApp, ui: &mut egui::Ui, nume
     let numeric_field_width = ((ui.available_width() - 54.0) / 3.0).clamp(28.0, 54.0);
     let mut row = |ui: &mut egui::Ui, label: &str, name: &str, value: &mut f32, maximum: f32, suffix: &str, colors: &[Color32]| {
         ui.push_id(label, |ui| {
-            ui.horizontal(|ui| {
+            let row_width = if numeric_only { numeric_field_width + 16.0 } else { ui.available_width() };
+            ui.allocate_ui_with_layout(vec2(row_width, 24.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 ui.label(label).on_hover_text(name);
                 if !numeric_only {
@@ -3820,13 +3821,18 @@ pub(crate) fn color_readout(ui: &mut egui::Ui, id: egui::Id, color: &mut [f32; 4
     ui.horizontal_wrapped(|ui| {
         // Docks zero the item spacing; keep the fields apart.
         ui.spacing_mut().item_spacing.x = 4.0;
-        ui.label(RichText::new("#").font(theme::mono(12.0)).color(t.text_faint));
-        changed = hex_edit(ui, id.with("hex"), color);
+        ui.allocate_ui_with_layout(vec2(80.0, 24.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.label(RichText::new("#").font(theme::mono(12.0)).color(t.text_faint));
+            changed = hex_edit(ui, id.with("hex"), color);
+        });
         let [mut r, mut g, mut b] = srgb_bytes(*color).map(f32::from);
         let mut rgb = false;
         for (label, v) in [("R", &mut r), ("G", &mut g), ("B", &mut b)] {
-            ui.label(RichText::new(label).font(theme::mono(11.0)).color(t.text_faint));
-            rgb |= widgets::value_field(ui, v, 0.0..=255.0, "", 38.0).changed();
+            // Keep a channel label with its field when a narrow panel wraps the row.
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(label).font(theme::mono(11.0)).color(t.text_faint));
+                rgb |= widgets::value_field(ui, v, 0.0..=255.0, "", 38.0).changed();
+            });
         }
         if rgb {
             *color = [r / 255.0, g / 255.0, b / 255.0, 1.0];
