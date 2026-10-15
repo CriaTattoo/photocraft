@@ -69,10 +69,10 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         } else if hsv.s < 0.01 {
             hsv.h = last.0;
         }
-        let footer = if app.ui.color_panel.sliders { 174.0 } else { 90.0 };
+        let footer = if app.ui.color_panel.sliders { 174.0 } else { 90.0 } + 24.0 - if app.ui.color_panel.show_recent { 0.0 } else { 52.0 };
         let width = ui.available_width().max(1.0);
         let diameter = (visible_height - footer).max(136.0).min(width);
-        if wheel(ui, &mut hsv, diameter) {
+        if wheel(ui, &mut hsv, diameter, app.ui.color_panel.rotate_triangle) {
             let mut color = panels::hsva_srgb(hsv);
             color[3] = active(app)[3];
             set_color(app, color);
@@ -89,7 +89,7 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         });
     } else {
         // The rectangular option also uses the live body height in floating and custom docks.
-        let reserve = if app.ui.color_panel.sliders { 152.0 } else { 68.0 };
+        let reserve = if app.ui.color_panel.sliders { 152.0 } else { 68.0 } + 24.0 - if app.ui.color_panel.show_recent { 0.0 } else { 52.0 };
         let height = (visible_height - reserve).max(120.0);
         ui.data_mut(|d| d.insert_temp(panels::color_field_fill_id(), height));
         panels::rectangular_color_field(app, ui);
@@ -99,8 +99,10 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.add_space(2.0);
         panels::hsb_sliders(app, ui);
     }
-    ui.separator();
-    history(app, ui);
+    if app.ui.color_panel.show_recent {
+        ui.separator();
+        history(app, ui);
+    }
     let after = active(app);
     let pending = ui.id().with(("recent-color-pending", background));
     if before != after || observed.is_some_and(|color| color != before) {
@@ -153,12 +155,20 @@ fn header(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ui.selectable_value(&mut app.ui.color_panel.picker, Picker::Rectangle, tl!("Field"));
             });
             ui.horizontal(|ui| {
-                if ui.small_button("⇄").on_hover_text(tl!("Swap Foreground and Background Colors")).clicked() {
-                    let _ = app.run("tools.swapColors", serde_json::json!({}));
+                if ui.small_button("⇄").on_hover_text(tl!("Swap colours (X)")).clicked() {
+                    if app.run("tools.swapColors", serde_json::json!({})).is_ok() {
+                        crate::type_tool::foreground_changed(app);
+                    }
                 }
                 ui.checkbox(&mut app.ui.color_panel.sliders, tl!("HSB Sliders"));
             });
         });
+    });
+    ui.horizontal_wrapped(|ui| {
+        ui.checkbox(&mut app.ui.color_panel.show_recent, tl!("Recent Colors"));
+        if app.ui.color_panel.picker == Picker::Wheel {
+            ui.checkbox(&mut app.ui.color_panel.rotate_triangle, tl!("Rotate Triangle"));
+        }
     });
 }
 
@@ -173,9 +183,12 @@ fn direction(hue: f32) -> Vec2 {
     vec2(angle.cos(), angle.sin())
 }
 
-fn triangle(center: Pos2, radius: f32) -> [Pos2; 3] {
-    // Pure hue, white and black. Keeping orientation fixed makes pen gestures predictable.
-    [center + vec2(radius, 0.0), center + vec2(-radius * 0.5, -radius * 0.8660254), center + vec2(-radius * 0.5, radius * 0.8660254)]
+fn triangle(center: Pos2, radius: f32, hue: Option<f32>) -> [Pos2; 3] {
+    // The pure-hue vertex follows the ring marker; white and black rotate with it.
+    // Fixed mode keeps the original right-pointing geometry.
+    let axis = hue.map(direction).unwrap_or(vec2(1.0, 0.0));
+    let perpendicular = vec2(-axis.y, axis.x);
+    [center + axis * radius, center + (axis * -0.5 - perpendicular * 0.8660254) * radius, center + (axis * -0.5 + perpendicular * 0.8660254) * radius]
 }
 
 fn weights(point: Pos2, [a, b, c]: [Pos2; 3]) -> [f32; 3] {
@@ -216,14 +229,15 @@ fn projected_weights(point: Pos2, vertices: [Pos2; 3]) -> [f32; 3] {
     weights(nearest, vertices).map(|v| v.clamp(0.0, 1.0))
 }
 
-fn wheel(ui: &mut egui::Ui, hsv: &mut egui::ecolor::Hsva, diameter: f32) -> bool {
+fn wheel(ui: &mut egui::Ui, hsv: &mut egui::ecolor::Hsva, diameter: f32, rotate: bool) -> bool {
     let width = ui.available_width();
     let (area, response) = ui.allocate_exact_size(vec2(width, diameter), Sense::click_and_drag());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, tl!("Color Wheel")));
     let center = area.center();
     let outer = (diameter * 0.5 - 4.0).max(1.0);
     let inner = (outer - (diameter * 0.075).clamp(10.0, 25.0)).max(1.0);
-    let vertices = triangle(center, (inner - 7.0).max(1.0));
+    let radius = (inner - 7.0).max(1.0);
+    let vertices = triangle(center, radius, rotate.then_some(hsv.h));
     let drag_id = response.id.with("component");
     let mut changed = false;
     // Fix the component at pointer-down. Crossing the ring during a triangle drag must not
@@ -266,6 +280,9 @@ fn wheel(ui: &mut egui::Ui, hsv: &mut egui::ecolor::Hsva, diameter: f32) -> bool
     if !ui.input(|i| i.pointer.primary_down()) {
         ui.data_mut(|d| d.remove::<u8>(drag_id));
     }
+    // Ring drags may have changed hue this frame. Use the new orientation for both
+    // the mesh and selection marker immediately, without a one-frame lag.
+    let vertices = triangle(center, radius, rotate.then_some(hsv.h));
     let mut ring = egui::Mesh::default();
     for step in 0..=144 {
         let hue = step as f32 / 144.0;
