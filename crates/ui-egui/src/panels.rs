@@ -2122,6 +2122,10 @@ fn color_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 
 /// Hue, Saturation and Brightness sliders for the selected foreground/background colour.
 pub(crate) fn hsb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    hsb_sliders_sized(app, ui, false);
+}
+
+pub(crate) fn hsb_sliders_sized(app: &mut PhotocraftApp, ui: &mut egui::Ui, numeric_only: bool) {
     let background = app.ui.color_panel.background;
     let fg = if background { app.session.tools.background } else { app.session.tools.foreground };
     // Keep the last edited HSB while it still gives the foreground: black and greys have no hue or
@@ -2139,12 +2143,41 @@ pub(crate) fn hsb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let hue = widgets::hue_stops();
     // Preferences ▸ Interface ▸ Dynamic Color Sliders: off, the tracks are the plain ones.
     let dynamic = app.session.prefs().interface.dynamic_color_sliders;
-    let mut changed = widgets::slider_row(ui, tl!("Hue"), &mut h, 0.0..=360.0, "°", dynamic.then_some(&hue)).changed();
     let sat_stops =
         [egui::ecolor::Hsva::new(hsva0.h, 0.0, hsva0.v.max(0.2), 1.0), egui::ecolor::Hsva::new(hsva0.h, 1.0, hsva0.v.max(0.2), 1.0)].map(hsva_color32);
-    changed |= widgets::slider_row(ui, tl!("Saturation"), &mut s, 0.0..=100.0, "%", dynamic.then_some(&sat_stops)).changed();
     let val_stops = [Color32::BLACK, hsva_color32(egui::ecolor::Hsva::new(hsva0.h, hsva0.s, 1.0, 1.0))];
-    changed |= widgets::slider_row(ui, tl!("Brightness"), &mut v, 0.0..=100.0, "%", dynamic.then_some(&val_stops)).changed();
+    let mut changed = false;
+    let numeric_field_width = ((ui.available_width() - 54.0) / 3.0).clamp(28.0, 54.0);
+    let mut row = |ui: &mut egui::Ui, label: &str, name: &str, value: &mut f32, maximum: f32, suffix: &str, colors: &[Color32]| {
+        ui.push_id(label, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.label(label).on_hover_text(name);
+                if !numeric_only {
+                    let width = (ui.available_width() - 58.0).max(60.0);
+                    let response = ui
+                        .allocate_ui_with_layout(vec2(width, 24.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            widgets::slider(ui, value, 0.0..=maximum, dynamic.then_some(colors))
+                        })
+                        .inner;
+                    changed |= response.changed();
+                }
+                let field_width = if numeric_only { ((ui.available_width() - 42.0) / 3.0).clamp(28.0, 54.0) } else { 54.0 };
+                changed |= widgets::value_field(ui, value, 0.0..=maximum, suffix, field_width).on_hover_text(name).changed();
+            });
+        });
+    };
+    if numeric_only {
+        ui.horizontal(|ui| {
+            row(ui, "H", tl!("Hue"), &mut h, 360.0, "°", &hue);
+            row(ui, "S", tl!("Saturation"), &mut s, 100.0, "%", &sat_stops);
+            row(ui, "B", tl!("Brightness"), &mut v, 100.0, "%", &val_stops);
+        });
+    } else {
+        row(ui, "H", tl!("Hue"), &mut h, 360.0, "°", &hue);
+        row(ui, "S", tl!("Saturation"), &mut s, 100.0, "%", &sat_stops);
+        row(ui, "B", tl!("Brightness"), &mut v, 100.0, "%", &val_stops);
+    }
     let hsva = egui::ecolor::Hsva::new(h / 360.0, s / 100.0, v / 100.0, 1.0);
     // Only an edit counts: the h/s/v round trip isn't exact, so comparing values would rewrite
     // the foreground (and recolour selected type) every frame.
@@ -3639,6 +3672,7 @@ pub(crate) fn color_field_fill_id() -> egui::Id {
 
 /// Height of the Color field: the group body's height (when docked) less the hex/RGB readout,
 /// which folds onto a second line in a narrow dock. 120 pt when nothing sets a height.
+#[cfg(test)]
 fn color_field_height(avail: Option<f32>, width: f32) -> f32 {
     let reserve = 32.0 + if width < 280.0 { 26.0 } else { 0.0 };
     avail.filter(|a| a.is_finite()).map_or(120.0, |a| (a - reserve).clamp(120.0, 2000.0))
@@ -3666,7 +3700,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     crate::artist_color::show(app, ui);
 }
 
-pub(crate) fn rectangular_color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+pub(crate) fn rectangular_color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui, height: f32) {
     let t = Tokens::get(ui.ctx());
     let bg_active = app.ui.color_panel.background;
     let key = egui::Id::new(("color-field-hue", bg_active));
@@ -3676,11 +3710,7 @@ pub(crate) fn rectangular_color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui
     hsva = field_hsva(hsva, remembered);
     let w = ui.available_width();
     let strip_w = 14.0;
-    // Photoshop's Color panel field fills the panel: take the height the dock offers, less the
-    // hex/RGB readout (which folds onto a second line in a narrow dock). Without a dock, 120 pt.
-    // The artist panel reserves room for its optional sliders before supplying this height.
-    let fill = ui.data(|d| d.get_temp::<f32>(color_field_fill_id()));
-    let h = color_field_height(fill, w);
+    let h = height.max(1.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
         let (chips, _) = ui.allocate_exact_size(vec2(38.0, h), Sense::hover());
@@ -3750,24 +3780,6 @@ pub(crate) fn rectangular_color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui
                 crate::type_tool::foreground_changed(app);
             }
             ui.data_mut(|d| d.insert_temp(key, (hsva.h, hsva.s)));
-        }
-    });
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        let mut c = if bg_active { app.session.tools.background } else { app.session.tools.foreground };
-        if color_readout(ui, ui.id().with(("color-field", bg_active)), &mut c) {
-            if bg_active {
-                app.session.tools.background = c;
-            } else {
-                app.session.tools.foreground = c;
-                crate::type_tool::foreground_changed(app);
-            }
-            // Keep the hue for greys, so the field marker doesn't jump to red; the saturation with
-            // it, so a later black lands on the corner it was last dragged to (#3228).
-            let h = srgb_hsva(c);
-            if h.s >= 0.01 && h.v >= 0.01 {
-                ui.data_mut(|d| d.insert_temp(key, (h.h, h.s)));
-            }
         }
     });
 }

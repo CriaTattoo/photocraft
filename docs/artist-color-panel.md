@@ -8,16 +8,22 @@ The gesture stays with the control where it started, even if the pointer crosses
 - **Wheel / Field** switches between the circular selector and the rectangular selector.
 - Click the foreground or background swatch to select which brush colour to edit. Double-click
   opens the existing full Color Picker dialog. The swap button uses the existing colour command.
-- **HSB Sliders** shows or hides gradient hue, saturation and brightness controls.
+- The existing panel **ellipsis menu** holds HSB visibility, recent colours, triangle rotation,
+  the twelve-colour ring, and harmony mode. These options no longer occupy rows in the body.
+- **HSB Sliders** shows or hides compact hue, saturation and brightness rows.
+  Very short panels put H/S/B numeric controls on one line.
 - HEX and RGB fields remain editable. Colour values use the same sRGB convention as brush colours.
 - **Rotate Triangle** makes the pure-hue corner point at the selected hue on the ring.
   Turn it off to keep the triangle pointing right. The selected colour stays the same.
-- The **Recent Colors** checkbox shows or hides the history without clearing its colours.
+- The **Recent Colors** menu option shows or hides the history without clearing its colours.
   The selector uses the space released when history is hidden.
 - **Recent Colors** remembers up to twelve distinct colours. A drag adds its final colour instead
   of every intermediate sample. Click a swatch to reuse it; **+** keeps the current colour explicitly.
-- The circular selector grows with the panel while preserving its shape. Short panels scroll;
-  the rectangular option uses the available body height instead of a fixed-height field.
+- The circular selector grows with the panel while preserving its shape. The layout reserves
+  the editable footer first and shrinks the selector in short panels, keeping HEX/RGB, HSB and
+  recent swatches visible without scrolling the entire panel. The rectangular selector also
+  uses the remaining height. Recent swatches use a single compact row.
+- The inner twelve-colour ring has wider segments and matching hit areas for easier clicking.
 
 Picker mode, slider/history visibility, triangle rotation, and recent colours are included in saved workspace layouts when
 Remember Workspace Changes is enabled. Existing layouts without these fields keep defaults.

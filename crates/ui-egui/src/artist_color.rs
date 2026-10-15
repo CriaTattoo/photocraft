@@ -93,60 +93,78 @@ fn remember(app: &mut PhotocraftApp, color: [f32; 4]) {
 }
 
 pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    // The clip rectangle describes the visible panel even inside a scrolling dock body.
-    // A tall panel grows the wheel up to the available width; a short one scrolls its controls.
-    let visible_height = ui.clip_rect().height().min(ui.available_height()).clamp(0.0, 4096.0);
-    ui.spacing_mut().item_spacing.y = 6.0;
+    // The dock supplies a bounded body. Reserve the editable footer before sizing the
+    // selector: scrolling the entire colour panel must never hide HSB or recent colours.
+    let area = ui.available_rect_before_wrap().intersect(ui.clip_rect());
+    ui.spacing_mut().item_spacing = vec2(4.0, 2.0);
     header(app, ui);
     let background = app.ui.color_panel.background;
     let before = active(app);
     let observed_id = ui.id().with(("artist-observed-color", background));
     let observed: Option<[f32; 4]> = ui.data(|d| d.get_temp(observed_id));
+    let remaining = ui.available_rect_before_wrap().intersect(area);
+    let width = remaining.width().max(1.0);
+    let numeric_hsb = remaining.height() < 220.0;
+    let readout_height = if width >= 280.0 { 24.0 } else { 52.0 };
+    let sliders_height = if app.ui.color_panel.sliders { if numeric_hsb { 24.0 } else { 76.0 } } else { 0.0 };
+    let recent_height = if app.ui.color_panel.show_recent { 24.0 } else { 0.0 };
+    let footer_height: f32 = readout_height + sliders_height + recent_height + 8.0;
+    let selector_height = (remaining.height() - footer_height).max(0.0);
+    let selector_rect = Rect::from_min_size(remaining.min, vec2(width, selector_height));
+    let footer_rect = Rect::from_min_max(egui::pos2(remaining.left(), selector_rect.bottom()), remaining.max);
     let hue_key = Id::new(("color-field-hue", background));
-    if app.ui.color_panel.picker == Picker::Wheel {
-        let color = active(app);
-        let mut hsv = panels::srgb_hsva(color);
-        let last: (f32, f32) = ui.data(|d| d.get_temp(hue_key)).unwrap_or((hsv.h, hsv.s));
-        if hsv.v < 0.01 {
-            hsv.h = last.0;
-            hsv.s = last.1;
-        } else if hsv.s < 0.01 {
-            hsv.h = last.0;
-        }
-        let footer = if app.ui.color_panel.sliders { 174.0 } else { 90.0 } + 48.0 - if app.ui.color_panel.show_recent { 0.0 } else { 52.0 };
-        let width = ui.available_width().max(1.0);
-        let diameter = (visible_height - footer).max(136.0).min(width);
-        if wheel(ui, &mut hsv, diameter, app.ui.color_panel.rotate_triangle, app.ui.color_panel.harmony_ring.then_some(app.ui.color_panel.harmony_mode)) {
-            let mut color = panels::hsva_srgb(hsv);
-            color[3] = active(app)[3];
-            set_color(app, color);
-            ui.data_mut(|d| {
-                d.insert_temp(hue_key, (hsv.h, hsv.s));
-                d.remove::<egui::ecolor::Hsva>(Id::new(("color-picker-hsva", background)));
-            });
-        }
-        ui.horizontal_wrapped(|ui| {
-            let mut color = active(app);
-            if panels::color_readout(ui, ui.id().with(("color-field", background)), &mut color) {
-                set_color(app, color);
+    if selector_rect.height() > 1.0 {
+        let mut selector_ui = ui.new_child(egui::UiBuilder::new().id_salt("color-selector").max_rect(selector_rect));
+        selector_ui.set_clip_rect(selector_rect.intersect(ui.clip_rect()));
+        if app.ui.color_panel.picker == Picker::Wheel {
+            let color = active(app);
+            let mut hsv = panels::srgb_hsva(color);
+            let last: (f32, f32) = ui.data(|d| d.get_temp(hue_key)).unwrap_or((hsv.h, hsv.s));
+            if hsv.v < 0.01 {
+                hsv.h = last.0;
+                hsv.s = last.1;
+            } else if hsv.s < 0.01 {
+                hsv.h = last.0;
             }
-        });
-    } else {
-        // The rectangular option also uses the live body height in floating and custom docks.
-        let reserve = if app.ui.color_panel.sliders { 152.0 } else { 68.0 } + 24.0 - if app.ui.color_panel.show_recent { 0.0 } else { 52.0 };
-        let height = (visible_height - reserve).max(120.0);
-        ui.data_mut(|d| d.insert_temp(panels::color_field_fill_id(), height));
-        panels::rectangular_color_field(app, ui);
-        ui.data_mut(|d| d.remove::<f32>(panels::color_field_fill_id()));
+            let diameter = width.min(selector_rect.height());
+            selector_ui.add_space(((selector_rect.height() - diameter) * 0.5).max(0.0));
+            if wheel(
+                &mut selector_ui,
+                &mut hsv,
+                diameter,
+                app.ui.color_panel.rotate_triangle,
+                app.ui.color_panel.harmony_ring.then_some(app.ui.color_panel.harmony_mode),
+            ) {
+                let mut color = panels::hsva_srgb(hsv);
+                color[3] = active(app)[3];
+                set_color(app, color);
+                ui.data_mut(|d| {
+                    d.insert_temp(hue_key, (hsv.h, hsv.s));
+                    d.remove::<egui::ecolor::Hsva>(Id::new(("color-picker-hsva", background)));
+                });
+            }
+        } else {
+            panels::rectangular_color_field(app, &mut selector_ui, selector_rect.height());
+        }
+    }
+    let mut footer_ui = ui.new_child(egui::UiBuilder::new().id_salt("color-controls").max_rect(footer_rect));
+    footer_ui.set_clip_rect(footer_rect.intersect(ui.clip_rect()));
+    footer_ui.spacing_mut().item_spacing = vec2(4.0, 2.0);
+    let mut color = active(app);
+    if panels::color_readout(&mut footer_ui, ui.id().with(("color-field", background)), &mut color) {
+        set_color(app, color);
     }
     if app.ui.color_panel.sliders {
-        ui.add_space(2.0);
-        panels::hsb_sliders(app, ui);
+        if numeric_hsb {
+            panels::hsb_sliders_sized(app, &mut footer_ui, true);
+        } else {
+            panels::hsb_sliders(app, &mut footer_ui);
+        }
     }
     if app.ui.color_panel.show_recent {
-        ui.separator();
-        history(app, ui);
+        history(app, &mut footer_ui);
     }
+    ui.advance_cursor_after_rect(remaining);
     let after = active(app);
     let pending = ui.id().with(("recent-color-pending", background));
     if before != after || observed.is_some_and(|color| color != before) {
@@ -164,15 +182,16 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 fn header(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let tokens = Tokens::get(ui.ctx());
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 5.0;
         if app.ui.color_panel.picker == Picker::Wheel {
-            let (rect, _) = ui.allocate_exact_size(vec2(57.0, 43.0), Sense::hover());
-            let bg = Rect::from_min_size(rect.min + vec2(19.0, 12.0), vec2(30.0, 30.0));
-            let fg = Rect::from_min_size(rect.min + vec2(2.0, 1.0), vec2(34.0, 34.0));
+            let (rect, _) = ui.allocate_exact_size(vec2(42.0, 28.0), Sense::hover());
+            let bg = Rect::from_min_size(rect.min + vec2(16.0, 7.0), vec2(22.0, 20.0));
+            let fg = Rect::from_min_size(rect.min + vec2(2.0, 1.0), vec2(25.0, 23.0));
             for (r, color, selected) in
                 [(bg, app.session.tools.background, app.ui.color_panel.background), (fg, app.session.tools.foreground, !app.ui.color_panel.background)]
             {
-                let [red, green, blue] = panels::srgb_bytes(color);
-                ui.painter().rect_filled(r, 3.0, Color32::from_rgb(red, green, blue));
+                let [r8, g8, b8] = panels::srgb_bytes(color);
+                ui.painter().rect_filled(r, 3.0, Color32::from_rgb(r8, g8, b8));
                 ui.painter().rect_stroke(
                     r,
                     3.0,
@@ -193,42 +212,28 @@ fn header(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 crate::color_picker_ui::open(app, if app.ui.color_panel.background { "background" } else { "foreground" });
             }
         }
-        ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut app.ui.color_panel.picker, Picker::Wheel, tl!("Wheel"));
-                ui.selectable_value(&mut app.ui.color_panel.picker, Picker::Rectangle, tl!("Field"));
-            });
-            ui.horizontal(|ui| {
-                if ui.small_button("⇄").on_hover_text(tl!("Swap colours (X)")).clicked() {
-                    if app.run("tools.swapColors", serde_json::json!({})).is_ok() {
-                        crate::type_tool::foreground_changed(app);
-                    }
-                }
-                ui.checkbox(&mut app.ui.color_panel.sliders, tl!("HSB Sliders"));
-            });
-        });
-    });
-    ui.horizontal_wrapped(|ui| {
-        ui.checkbox(&mut app.ui.color_panel.show_recent, tl!("Recent Colors"));
-        if app.ui.color_panel.picker == Picker::Wheel {
-            ui.checkbox(&mut app.ui.color_panel.rotate_triangle, tl!("Rotate Triangle"));
+        ui.selectable_value(&mut app.ui.color_panel.picker, Picker::Wheel, tl!("Wheel"));
+        ui.selectable_value(&mut app.ui.color_panel.picker, Picker::Rectangle, tl!("Field"));
+        if ui.small_button("⇄").on_hover_text(tl!("Swap colours (X)")).clicked() && app.run("tools.swapColors", serde_json::json!({})).is_ok() {
+            crate::type_tool::foreground_changed(app);
         }
     });
-    if app.ui.color_panel.picker == Picker::Wheel {
-        ui.horizontal_wrapped(|ui| {
-            ui.checkbox(&mut app.ui.color_panel.harmony_ring, tl!("12-Color Ring"));
-            if app.ui.color_panel.harmony_ring {
-                let text = match app.ui.color_panel.harmony_mode {
-                    HarmonyMode::Related => tl!("Related Colors"),
-                    HarmonyMode::Rgb => tl!("RGB Circle"),
-                };
-                egui::ComboBox::from_id_salt("color-harmony-mode").selected_text(text).width(150.0).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut app.ui.color_panel.harmony_mode, HarmonyMode::Related, tl!("Related Colors"));
-                    ui.selectable_value(&mut app.ui.color_panel.harmony_mode, HarmonyMode::Rgb, tl!("RGB Circle"));
-                });
-            }
+}
+
+/// The existing panel ellipsis owns presentation options in both native and custom docks.
+pub(crate) fn options(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    ui.checkbox(&mut app.ui.color_panel.sliders, tl!("HSB Sliders"));
+    ui.checkbox(&mut app.ui.color_panel.show_recent, tl!("Recent Colors"));
+    ui.add_enabled_ui(app.ui.color_panel.picker == Picker::Wheel, |ui| {
+        ui.checkbox(&mut app.ui.color_panel.rotate_triangle, tl!("Rotate Triangle"));
+        ui.checkbox(&mut app.ui.color_panel.harmony_ring, tl!("12-Color Ring"));
+        ui.add_enabled_ui(app.ui.color_panel.harmony_ring, |ui| {
+            ui.menu_button(tl!("Harmony Mode"), |ui| {
+                ui.selectable_value(&mut app.ui.color_panel.harmony_mode, HarmonyMode::Related, tl!("Related Colors"));
+                ui.selectable_value(&mut app.ui.color_panel.harmony_mode, HarmonyMode::Rgb, tl!("RGB Circle"));
+            });
         });
-    }
+    });
 }
 
 fn marker(ui: &egui::Ui, position: Pos2, radius: f32) {
@@ -296,7 +301,7 @@ fn wheel(ui: &mut egui::Ui, hsv: &mut egui::ecolor::Hsva, diameter: f32, rotate:
     let outer = (diameter * 0.5 - 4.0).max(1.0);
     let inner = (outer - (diameter * 0.075).clamp(10.0, 25.0)).max(1.0);
     let palette_outer = (inner - 3.0).max(1.0);
-    let palette_inner = (palette_outer - (diameter * 0.065).clamp(9.0, 22.0)).max(1.0);
+    let palette_inner = (palette_outer - (diameter * 0.09).clamp(14.0, 30.0)).max(1.0);
     let radius = (if harmony.is_some() { palette_inner - 6.0 } else { inner - 7.0 }).max(1.0);
     let vertices = triangle(center, radius, rotate.then_some(hsv.h));
     let drag_id = response.id.with("component");
@@ -449,18 +454,16 @@ fn paint_harmonies(ui: &egui::Ui, center: Pos2, inner: f32, outer: f32, palette:
 }
 
 fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let tokens = Tokens::get(ui.ctx());
+
     ui.horizontal(|ui| {
-        ui.label(tl!("Recent Colors"));
+        ui.spacing_mut().item_spacing.x = 2.0;
         if ui.small_button("+").on_hover_text(tl!("Keep Current Color")).clicked() {
             remember(app, active(app));
         }
-    });
-    let tokens = Tokens::get(ui.ctx());
-    let size = ((ui.available_width() - 22.0) / 12.0).clamp(8.0, 38.0);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 2.0;
+        let size = ((ui.available_width() - 22.0) / 12.0).clamp(1.0, 64.0);
         for color in app.ui.color_panel.recent.into_iter() {
-            let (rect, response) = ui.allocate_exact_size(vec2(size, 23.0), Sense::click());
+            let (rect, response) = ui.allocate_exact_size(vec2(size, 24.0), Sense::click());
             let valid = color.filter(|c| c.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)));
             let fill = valid
                 .map(|c| {
