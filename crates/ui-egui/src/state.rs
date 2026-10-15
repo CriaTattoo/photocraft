@@ -1058,12 +1058,23 @@ pub struct ColorPanelState {
     pub sliders: bool,
     pub show_recent: bool,
     pub rotate_triangle: bool,
+    pub harmony_ring: bool,
+    pub harmony_mode: crate::artist_color::HarmonyMode,
     pub recent: [Option<[f32; 4]>; 12],
 }
 
 impl Default for ColorPanelState {
     fn default() -> Self {
-        Self { background: false, picker: Default::default(), sliders: true, show_recent: true, rotate_triangle: true, recent: [None; 12] }
+        Self {
+            background: false,
+            picker: Default::default(),
+            sliders: true,
+            show_recent: true,
+            rotate_triangle: true,
+            harmony_ring: true,
+            harmony_mode: Default::default(),
+            recent: [None; 12],
+        }
     }
 }
 

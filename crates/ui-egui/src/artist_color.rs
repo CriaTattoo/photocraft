@@ -13,6 +13,50 @@ pub enum Picker {
     Rectangle,
 }
 
+/// RGB hue geometry is independent of the document's storage colour model.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HarmonyMode {
+    #[default]
+    Related,
+    Rgb,
+}
+
+#[derive(Clone, Copy)]
+struct HarmonyPalette {
+    start: f32,
+    colors: [egui::ecolor::Hsva; 12],
+    mode: HarmonyMode,
+}
+impl HarmonyPalette {
+    fn new(color: egui::ecolor::Hsva, mode: HarmonyMode) -> Self {
+        let start = if mode == HarmonyMode::Related { color.h } else { 0.0 };
+        Self { start, mode, colors: std::array::from_fn(|i| egui::ecolor::Hsva::new((start + i as f32 / 12.0).rem_euclid(1.0), color.s, color.v, color.a)) }
+    }
+    fn index(self, point: Pos2, center: Pos2) -> usize {
+        let delta = point - center;
+        let hue = delta.y.atan2(delta.x) / TAU + 0.25;
+        (((hue - self.start + 1.0 / 24.0).rem_euclid(1.0) * 12.0).floor() as usize).min(11)
+    }
+    fn label(self, index: usize) -> &'static str {
+        if self.mode == HarmonyMode::Rgb {
+            return match index % 4 {
+                0 => tl!("Primary Color"),
+                2 => tl!("Secondary Color"),
+                _ => tl!("Tertiary Color"),
+            };
+        }
+        match index {
+            0 => tl!("Selected Color"),
+            1 | 2 | 10 | 11 => tl!("Analogous Color"),
+            6 => tl!("Complementary / Opposite Color"),
+            4 | 8 => tl!("Triadic Color"),
+            3 | 9 => tl!("Tetradic Color"),
+            _ => tl!("Split Complementary Color"),
+        }
+    }
+}
+
 fn active(app: &PhotocraftApp) -> [f32; 4] {
     if app.ui.color_panel.background { app.session.tools.background } else { app.session.tools.foreground }
 }
@@ -69,10 +113,10 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         } else if hsv.s < 0.01 {
             hsv.h = last.0;
         }
-        let footer = if app.ui.color_panel.sliders { 174.0 } else { 90.0 } + 24.0 - if app.ui.color_panel.show_recent { 0.0 } else { 52.0 };
+        let footer = if app.ui.color_panel.sliders { 174.0 } else { 90.0 } + 48.0 - if app.ui.color_panel.show_recent { 0.0 } else { 52.0 };
         let width = ui.available_width().max(1.0);
         let diameter = (visible_height - footer).max(136.0).min(width);
-        if wheel(ui, &mut hsv, diameter, app.ui.color_panel.rotate_triangle) {
+        if wheel(ui, &mut hsv, diameter, app.ui.color_panel.rotate_triangle, app.ui.color_panel.harmony_ring.then_some(app.ui.color_panel.harmony_mode)) {
             let mut color = panels::hsva_srgb(hsv);
             color[3] = active(app)[3];
             set_color(app, color);
@@ -170,6 +214,21 @@ fn header(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             ui.checkbox(&mut app.ui.color_panel.rotate_triangle, tl!("Rotate Triangle"));
         }
     });
+    if app.ui.color_panel.picker == Picker::Wheel {
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(&mut app.ui.color_panel.harmony_ring, tl!("12-Color Ring"));
+            if app.ui.color_panel.harmony_ring {
+                let text = match app.ui.color_panel.harmony_mode {
+                    HarmonyMode::Related => tl!("Related Colors"),
+                    HarmonyMode::Rgb => tl!("RGB Circle"),
+                };
+                egui::ComboBox::from_id_salt("color-harmony-mode").selected_text(text).width(150.0).show_ui(ui, |ui| {
+                    ui.selectable_value(&mut app.ui.color_panel.harmony_mode, HarmonyMode::Related, tl!("Related Colors"));
+                    ui.selectable_value(&mut app.ui.color_panel.harmony_mode, HarmonyMode::Rgb, tl!("RGB Circle"));
+                });
+            }
+        });
+    }
 }
 
 fn marker(ui: &egui::Ui, position: Pos2, radius: f32) {
@@ -229,16 +288,19 @@ fn projected_weights(point: Pos2, vertices: [Pos2; 3]) -> [f32; 3] {
     weights(nearest, vertices).map(|v| v.clamp(0.0, 1.0))
 }
 
-fn wheel(ui: &mut egui::Ui, hsv: &mut egui::ecolor::Hsva, diameter: f32, rotate: bool) -> bool {
+fn wheel(ui: &mut egui::Ui, hsv: &mut egui::ecolor::Hsva, diameter: f32, rotate: bool, harmony: Option<HarmonyMode>) -> bool {
     let width = ui.available_width();
     let (area, response) = ui.allocate_exact_size(vec2(width, diameter), Sense::click_and_drag());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, tl!("Color Wheel")));
     let center = area.center();
     let outer = (diameter * 0.5 - 4.0).max(1.0);
     let inner = (outer - (diameter * 0.075).clamp(10.0, 25.0)).max(1.0);
-    let radius = (inner - 7.0).max(1.0);
+    let palette_outer = (inner - 3.0).max(1.0);
+    let palette_inner = (palette_outer - (diameter * 0.065).clamp(9.0, 22.0)).max(1.0);
+    let radius = (if harmony.is_some() { palette_inner - 6.0 } else { inner - 7.0 }).max(1.0);
     let vertices = triangle(center, radius, rotate.then_some(hsv.h));
     let drag_id = response.id.with("component");
+    let palette_id = response.id.with("harmony-gesture");
     let mut changed = false;
     // Fix the component at pointer-down. Crossing the ring during a triangle drag must not
     // unexpectedly change the hue (and vice versa). Starting in the gap does nothing.
@@ -247,12 +309,21 @@ fn wheel(ui: &mut egui::Ui, hsv: &mut egui::ecolor::Hsva, diameter: f32, rotate:
             let distance = point.distance(center);
             let component = if distance >= inner && distance <= outer + 3.0 {
                 1_u8
+            } else if harmony.is_some() && distance >= palette_inner && distance <= palette_outer {
+                3
             } else if weights(point, vertices).iter().all(|v| *v >= 0.0) {
                 2
             } else {
                 0
             };
-            ui.data_mut(|d| d.insert_temp(drag_id, component));
+            ui.data_mut(|d| {
+                d.insert_temp(drag_id, component);
+                if component == 3
+                    && let Some(mode) = harmony
+                {
+                    d.insert_temp(palette_id, HarmonyPalette::new(*hsv, mode));
+                }
+            });
         }
     }
     if (response.dragged() || response.clicked() || ui.input(|i| i.pointer.primary_pressed()) && response.contains_pointer())
@@ -274,11 +345,22 @@ fn wheel(ui: &mut egui::Ui, hsv: &mut egui::ecolor::Hsva, diameter: f32, rotate:
                 }
                 changed = true;
             }
+            3 => {
+                if let Some(palette) = ui.data(|d| d.get_temp::<HarmonyPalette>(palette_id))
+                    && let Some(color) = palette.colors.get(palette.index(point, center))
+                {
+                    *hsv = *color;
+                    changed = true;
+                }
+            }
             _ => {}
         }
     }
     if !ui.input(|i| i.pointer.primary_down()) {
-        ui.data_mut(|d| d.remove::<u8>(drag_id));
+        ui.data_mut(|d| {
+            d.remove::<u8>(drag_id);
+            d.remove::<HarmonyPalette>(palette_id);
+        });
     }
     // Ring drags may have changed hue this frame. Use the new orientation for both
     // the mesh and selection marker immediately, without a one-frame lag.
@@ -296,6 +378,19 @@ fn wheel(ui: &mut egui::Ui, hsv: &mut egui::ecolor::Hsva, diameter: f32, rotate:
         ring.add_triangle(a, a + 3, a + 2);
     }
     ui.painter().add(ring);
+    if let Some(mode) = harmony {
+        let palette = ui.data(|d| d.get_temp::<HarmonyPalette>(palette_id)).unwrap_or_else(|| HarmonyPalette::new(*hsv, mode));
+        paint_harmonies(ui, center, palette_inner, palette_outer, palette);
+        if let Some(point) = response.hover_pos().filter(|p| p.is_finite())
+            && (palette_inner..=palette_outer).contains(&point.distance(center))
+        {
+            let index = palette.index(point, center);
+            if let Some(color) = palette.colors.get(index) {
+                let [r, g, b] = panels::srgb_bytes(panels::hsva_srgb(*color));
+                response.clone().on_hover_text(format!("{}\n#{r:02X}{g:02X}{b:02X}", palette.label(index)));
+            }
+        }
+    }
     let [hue_vertex, white_vertex, black_vertex] = vertices;
     let at = |hue: f32, white: f32| black_vertex + (hue_vertex - black_vertex) * hue + (white_vertex - black_vertex) * white;
     let mut mesh = egui::Mesh::default();
@@ -327,6 +422,30 @@ fn wheel(ui: &mut egui::Ui, hsv: &mut egui::ecolor::Hsva, diameter: f32, rotate:
     marker(ui, center + direction(hsv.h) * ((inner + outer) * 0.5), ((outer - inner) * 0.34).clamp(3.0, 7.0));
     marker(ui, at(hsv.s * hsv.v, (1.0 - hsv.s) * hsv.v), 4.5);
     changed
+}
+
+fn paint_harmonies(ui: &egui::Ui, center: Pos2, inner: f32, outer: f32, palette: HarmonyPalette) {
+    let tokens = Tokens::get(ui.ctx());
+    for (index, color) in palette.colors.into_iter().enumerate() {
+        let middle = palette.start + index as f32 / 12.0;
+        let start = middle - 1.0 / 24.0;
+        let mut mesh = egui::Mesh::default();
+        let color = panels::hsva_color32(color);
+        for step in 0..=12 {
+            let angle = start + step as f32 / 144.0;
+            mesh.colored_vertex(center + direction(angle) * inner, color);
+            mesh.colored_vertex(center + direction(angle) * outer, color);
+        }
+        for step in 0..12_u32 {
+            let a = step * 2;
+            mesh.add_triangle(a, a + 1, a + 3);
+            mesh.add_triangle(a, a + 3, a + 2);
+        }
+        ui.painter().add(mesh);
+        ui.painter().line_segment([center + direction(start) * inner, center + direction(start) * outer], Stroke::new(1.0, tokens.separator));
+    }
+    ui.painter().circle_stroke(center, inner, Stroke::new(1.0, tokens.separator));
+    ui.painter().circle_stroke(center, outer, Stroke::new(1.0, tokens.separator));
 }
 
 fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {

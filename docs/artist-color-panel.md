@@ -31,3 +31,25 @@ so omitted fields receive defaults.
 This panel works with the existing upstream dock. It does not depend on bilateral panel docking
 or a movable toolbar. It is an original implementation informed by artist colour-picker workflows;
 it contains no MagicPicker code or artwork. HSB brightness is HSV value, not perceptual lightness.
+
+## Optional twelve-colour inner ring
+
+**12-Color Ring** toggles a segmented ring between the outer hue wheel and the triangle.
+Click or drag its segments to select a suggested colour. The gesture uses a frozen palette
+until release, so picking a suggestion does not shift its targets under the pointer.
+
+- **Related Colors** places the selected hue at the centre of a segment and samples hues
+  every 30 degrees relative to it. Tooltips identify the base, analogous neighbours, the
+  opposite/complementary colour, triadic, tetradic and split-complementary relationships.
+- **RGB Circle** anchors the twelve samples at red (0 degrees), independent of the selection.
+  Tooltips identify additive RGB primaries (red, green, blue), secondaries and tertiaries.
+
+Both modes preserve the selected saturation and HSV brightness. Consequently grey or black
+bases produce grey or black suggestions; the outer wheel remains a full-colour hue reference.
+This is an RGB harmony model, not a change to the document's storage mode. Applying a segment
+sets the same sRGB brush foreground/background used by the existing Color panel; paint and
+fill keep their existing document conversion paths. It does not introduce ICC soft proofing
+or claim that all suggested display colours can be printed in CMYK.
+
+Automation fields: `harmony_ring` (boolean), `harmony_mode` (`related` or `rgb`). Both are
+serialized with the Color panel state. Turning the ring off restores the triangle's space.
