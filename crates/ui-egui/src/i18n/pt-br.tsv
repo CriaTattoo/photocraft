@@ -3990,3 +3990,9 @@ layerLabel	No Color	Sem cor
 # Free Transform: a new layer while the box is open (#5859)
 	Free Transform is still being applied; try again when it has finished.	A Transformação livre ainda está sendo aplicada; tente novamente quando terminar.
 	The transform couldn't be applied.	Não foi possível aplicar a transformação.
+
+	Wheel	Roda
+	Field	Campo
+	HSB Sliders	Barras HSB
+	Recent Colors	Cores recentes
+	Keep Current Color	Guardar cor atual

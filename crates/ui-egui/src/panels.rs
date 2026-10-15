@@ -2115,22 +2115,24 @@ fn empty(ui: &mut egui::Ui, s: &str) {
     ui.add_space(6.0);
 }
 
-/// The Color tab of the themes other than Photoshop's: the same spectrum field (chips, saturation
-/// and brightness field, hue strip and readout) with HSB sliders under it (#4367).
+/// Every theme shares the artist-oriented Color panel and its optional HSB sliders.
 fn color_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     color_field(app, ui);
-    ui.add_space(8.0);
-    hsb_sliders(app, ui);
 }
 
-/// Hue, Saturation and Brightness sliders for the foreground colour.
-fn hsb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    let fg = app.session.tools.foreground;
+/// Hue, Saturation and Brightness sliders for the selected foreground/background colour.
+pub(crate) fn hsb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let background = app.ui.color_panel.background;
+    let fg = if background { app.session.tools.background } else { app.session.tools.foreground };
     // Keep the last edited HSB while it still gives the foreground: black and greys have no hue or
     // saturation of their own, so recomputing them from RGB would reset what was just typed to 0.
-    let key = egui::Id::new("color-picker-hsva");
+    let key = egui::Id::new(("color-picker-hsva", background));
+    let field_key = egui::Id::new(("color-field-hue", background));
     let stored: Option<egui::ecolor::Hsva> = ui.data(|d| d.get_temp(key));
-    let hsva0 = stored.filter(|h| srgb_bytes(hsva_srgb(*h)) == srgb_bytes(fg)).unwrap_or_else(|| srgb_hsva(fg));
+    let hsva0 = stored.filter(|h| srgb_bytes(hsva_srgb(*h)) == srgb_bytes(fg)).unwrap_or_else(|| {
+        let h = srgb_hsva(fg);
+        field_hsva(h, ui.data(|d| d.get_temp(field_key)).unwrap_or((h.h, h.s)))
+    });
     let mut h = hsva0.h * 360.0;
     let mut s = hsva0.s * 100.0;
     let mut v = hsva0.v * 100.0;
@@ -2147,9 +2149,14 @@ fn hsb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // Only an edit counts: the h/s/v round trip isn't exact, so comparing values would rewrite
     // the foreground (and recolour selected type) every frame.
     if changed {
-        app.session.tools.foreground = hsva_srgb(hsva);
+        if background {
+            app.session.tools.background = hsva_srgb(hsva);
+        } else {
+            app.session.tools.foreground = hsva_srgb(hsva);
+            crate::type_tool::foreground_changed(app);
+        }
         ui.data_mut(|d| d.insert_temp(key, hsva));
-        crate::type_tool::foreground_changed(app);
+        ui.data_mut(|d| d.insert_temp(field_key, (hsva.h, hsva.s)));
     }
 }
 
@@ -3654,8 +3661,12 @@ fn field_hsva(mut hsva: egui::ecolor::Hsva, remembered: (f32, f32)) -> egui::eco
     hsva
 }
 
-/// Photoshop Color panel: saturation/brightness field + hue strip, drawn as shaded meshes.
+/// Shared Color panel entry point, independent of the dock hosting it.
 fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    crate::artist_color::show(app, ui);
+}
+
+pub(crate) fn rectangular_color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let bg_active = app.ui.color_panel.background;
     let key = egui::Id::new(("color-field-hue", bg_active));
@@ -3667,8 +3678,8 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let strip_w = 14.0;
     // Photoshop's Color panel field fills the panel: take the height the dock offers, less the
     // hex/RGB readout (which folds onto a second line in a narrow dock). Without a dock, 120 pt.
-    // Only Photoshop's themes stretch it over the group: the other themes put sliders under it.
-    let fill = if t.pro { ui.data(|d| d.get_temp::<f32>(color_field_fill_id())) } else { None };
+    // The artist panel reserves room for its optional sliders before supplying this height.
+    let fill = ui.data(|d| d.get_temp::<f32>(color_field_fill_id()));
     let h = color_field_height(fill, w);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
@@ -3763,7 +3774,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 
 /// Tool colours are sRGB-encoded floats; egui's Hsva works on sRGB bytes via these helpers
 /// (its `from_rgba_unmultiplied` expects *linear* RGB, which gave wrong readouts).
-fn srgb_bytes(c: [f32; 4]) -> [u8; 3] {
+pub(crate) fn srgb_bytes(c: [f32; 4]) -> [u8; 3] {
     let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
     [q(c[0]), q(c[1]), q(c[2])]
 }
@@ -3771,18 +3782,18 @@ fn srgb_bytes(c: [f32; 4]) -> [u8; 3] {
 /// The Color panel's HSB, as Photoshop's and the Color Picker's: on the sRGB-encoded values,
 /// so a 50% grey has Brightness 50%. egui's `Hsva` conversions work in linear light, which put
 /// that grey at 22% and drew the field's middle as 188 (#3323); `Hsva` only holds the numbers.
-fn srgb_hsva(c: [f32; 4]) -> egui::ecolor::Hsva {
+pub(crate) fn srgb_hsva(c: [f32; 4]) -> egui::ecolor::Hsva {
     let [h, s, v] = crate::color_picker_ui::rgb_to_hsv([c[0], c[1], c[2]].map(|v| v.clamp(0.0, 1.0)));
     egui::ecolor::Hsva::new(h / 360.0, s, v, 1.0)
 }
 
-fn hsva_srgb(h: egui::ecolor::Hsva) -> [f32; 4] {
+pub(crate) fn hsva_srgb(h: egui::ecolor::Hsva) -> [f32; 4] {
     let [r, g, b] = crate::color_picker_ui::hsv_to_rgb(h.h * 360.0, h.s.clamp(0.0, 1.0), h.v.clamp(0.0, 1.0));
     [r, g, b, 1.0]
 }
 
 /// The colour to draw for Color panel HSB `h` (see [`srgb_hsva`]).
-fn hsva_color32(h: egui::ecolor::Hsva) -> Color32 {
+pub(crate) fn hsva_color32(h: egui::ecolor::Hsva) -> Color32 {
     let [r, g, b] = srgb_bytes(hsva_srgb(h));
     Color32::from_rgb(r, g, b)
 }
@@ -3790,7 +3801,7 @@ fn hsva_color32(h: egui::ecolor::Hsva) -> Color32 {
 /// The Color panel's editable colour readout: a hex field and R, G, B fields, all drawn like the
 /// dock's [`widgets::value_field`] so they sit in the theme. Editing any of them sets `color`
 /// (sRGB-encoded floats) and returns `true`.
-fn color_readout(ui: &mut egui::Ui, id: egui::Id, color: &mut [f32; 4]) -> bool {
+pub(crate) fn color_readout(ui: &mut egui::Ui, id: egui::Id, color: &mut [f32; 4]) -> bool {
     let t = Tokens::get(ui.ctx());
     let mut changed = false;
     // Wrapped so the fields fold onto a second line in a narrow dock instead of being clipped.
