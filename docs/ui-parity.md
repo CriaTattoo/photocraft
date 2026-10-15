@@ -210,6 +210,8 @@ Paragraph; the rest open as in-app floating windows.
 | Docked resize pushes the neighbour | partial | #2573 |
 | Color panel wheel and RGB/HSB/CMYK/Lab sliders | missing | UI-217-17, #2569 |
 | Window size and dock width remembered | done | UI-217-2 |
+| Independent panels on both sides of the canvas, with floating groups | done | Drag individual tabs between simultaneous left/right columns or float them; side membership is saved per workspace; floating bounds exclude main toolbars (2026-10-15) |
+| Movable tools palette beside the canvas or floating | done | `window.toolbar.layout`; dedicated drag grip, left/right innermost docking, floating height, workspace persistence and lock; 2026-10-15 |
 | Command palette with recents | done | UI-217-7 |
 | Menu bar from the keyboard: Alt / F10 focus the bar, ← → ↓ ↩ drive it, Alt+letter opens a menu, underlined mnemonics run items | done | `menu_keys.rs`, #4988; macOS uses the native bar |
 | Every preference takes effect | partial | 46 of 149 do nothing (scorecard) |
