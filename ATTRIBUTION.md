@@ -118,8 +118,9 @@ next to the files:
 
 Files copied into `corpus/` by hand (tiff, exr, raw) must be MIT, BSD or CC0.
 
-## Adapted code
+## Adapted code and UI captures
 
 | Path | Source | Author | License |
 |---|---|---|---|
 | `crates/ui-egui/src/panel_surface.rs` | craft-libs `craft-ui` docking renderer, pinned revision `5c874d51eeb3de70e735c8ce87a59a7dedd47675`; adapted for simultaneous dock regions and toolbar exclusion | ArtCraft Team and craft-libs contributors | MIT, `crates/ui-egui/src/LICENSE-craft-docking.txt` |
+| `docs/images/modular-workspace.png` | Original offscreen PhotoCraft UI capture; empty synthetic workspace | @CriaTattoo | MIT OR Apache-2.0, repository licenses |
