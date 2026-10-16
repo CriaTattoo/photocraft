@@ -3637,36 +3637,6 @@ fn adjustments_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 }
 
-/// The Color panel's foreground and background chips. A click picks the colour the field edits,
-/// framed; a double-click opens the Color Picker on it.
-fn field_chips(app: &mut PhotocraftApp, ui: &mut egui::Ui, chips: Rect) {
-    let t = Tokens::get(ui.ctx());
-    let bgr = Rect::from_min_size(chips.min + vec2(13.0, 13.0), vec2(22.0, 22.0));
-    let fgr = Rect::from_min_size(chips.min + vec2(3.0, 3.0), vec2(22.0, 22.0));
-    let frame = Stroke::new(1.0, t.text_dim);
-    let bg_active = app.ui.color_panel.background;
-    let p = ui.painter();
-    p.rect_filled(bgr, 2.0, c32(app.session.tools.background));
-    p.rect_stroke(bgr, 2.0, Stroke::new(1.0, t.field_border), StrokeKind::Outside);
-    if bg_active {
-        p.rect_stroke(bgr.expand(2.0), 2.0, frame, StrokeKind::Outside);
-    }
-    p.rect_filled(fgr, 2.0, c32(app.session.tools.foreground));
-    p.rect_stroke(fgr, 2.0, Stroke::new(1.0, Color32::from_gray(210)), StrokeKind::Outside);
-    if !bg_active {
-        p.rect_stroke(fgr.expand(2.0), 2.0, frame, StrokeKind::Outside);
-    }
-    // The foreground is on top, so it takes the clicks where the two overlap.
-    let bg_resp = ui.interact(bgr, ui.id().with("field-bg"), Sense::click());
-    let fg_resp = ui.interact(fgr, ui.id().with("field-fg"), Sense::click());
-    let picked = if fg_resp.clicked() { false } else { bg_resp.clicked() || bg_active };
-    app.ui.color_panel.background = picked;
-    if fg_resp.double_clicked() || bg_resp.double_clicked() {
-        crate::color_picker_ui::open(app, if picked { "background" } else { "foreground" });
-    }
-}
-
-/// Where the dock tells the Color field how tall its group body is.
 pub(crate) fn color_field_fill_id() -> egui::Id {
     egui::Id::new("color-field-fill-height")
 }
@@ -3714,10 +3684,8 @@ pub(crate) fn rectangular_color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui
     let h = height.max(1.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
-        let (chips, _) = ui.allocate_exact_size(vec2(38.0, h), Sense::hover());
-        field_chips(app, ui, chips);
         // SV field.
-        let field_w = w - 38.0 - strip_w - 16.0;
+        let field_w = (w - strip_w - 8.0).max(1.0);
         let (field, fresp) = ui.allocate_exact_size(vec2(field_w, h), Sense::click_and_drag());
         let mut mesh = egui::Mesh::default();
         let n = 16;

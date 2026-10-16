@@ -97,9 +97,10 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // selector: scrolling the entire colour panel must never hide HSB or recent colours.
     let area = ui.available_rect_before_wrap().intersect(ui.clip_rect());
     ui.spacing_mut().item_spacing = vec2(4.0, 2.0);
+    let previous = (app.ui.color_panel.background, active(app));
     header(app, ui);
     let background = app.ui.color_panel.background;
-    let before = active(app);
+    let before = if previous.0 == background { previous.1 } else { active(app) };
     let observed_id = ui.id().with(("artist-observed-color", background));
     let observed: Option<[f32; 4]> = ui.data(|d| d.get_temp(observed_id));
     let remaining = ui.available_rect_before_wrap().intersect(area);
@@ -110,10 +111,9 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let numeric_hsb = remaining.height() < 220.0;
     let horizontal = remaining.height() < 180.0 && width >= 260.0;
     let controls_width = if horizontal { 168.0 } else { width };
-    let readout_height = if controls_width >= 280.0 { 24.0 } else { 52.0 };
     let sliders_height = if app.ui.color_panel.sliders { if numeric_hsb { 24.0 } else { 76.0 } } else { 0.0 };
     let recent_height = if app.ui.color_panel.show_recent { 24.0 } else { 0.0 };
-    let footer_height: f32 = readout_height + sliders_height + recent_height + 8.0;
+    let footer_height: f32 = sliders_height + recent_height + 4.0;
     let selector_height = (remaining.height() - footer_height).max(0.0);
     let selector_rect = if horizontal {
         Rect::from_min_size(remaining.min, vec2((width - controls_width - 6.0).max(1.0), remaining.height().max(0.0)))
@@ -163,10 +163,6 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut footer_ui = ui.new_child(egui::UiBuilder::new().id_salt("color-controls").max_rect(footer_rect));
     footer_ui.set_clip_rect(footer_rect.intersect(ui.clip_rect()));
     footer_ui.spacing_mut().item_spacing = vec2(4.0, 2.0);
-    let mut color = active(app);
-    if panels::color_readout(&mut footer_ui, ui.id().with(("color-field", background)), &mut color) {
-        set_color(app, color);
-    }
     if app.ui.color_panel.sliders {
         if numeric_hsb {
             panels::hsb_sliders_sized(app, &mut footer_ui, true);
@@ -192,45 +188,87 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     ui.data_mut(|d| d.insert_temp(observed_id, after));
 }
 
+/// Anchor each group independently; narrow docks move only the readout to a new row.
 fn header(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let tokens = Tokens::get(ui.ctx());
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 5.0;
-        if app.ui.color_panel.picker == Picker::Wheel {
-            let (rect, _) = ui.allocate_exact_size(vec2(42.0, 28.0), Sense::hover());
-            let bg = Rect::from_min_size(rect.min + vec2(16.0, 7.0), vec2(22.0, 20.0));
-            let fg = Rect::from_min_size(rect.min + vec2(2.0, 1.0), vec2(25.0, 23.0));
-            for (r, color, selected) in
-                [(bg, app.session.tools.background, app.ui.color_panel.background), (fg, app.session.tools.foreground, !app.ui.color_panel.background)]
-            {
-                let [r8, g8, b8] = panels::srgb_bytes(color);
-                ui.painter().rect_filled(r, 3.0, Color32::from_rgb(r8, g8, b8));
-                ui.painter().rect_stroke(
-                    r,
-                    3.0,
-                    Stroke::new(if selected { 2.0 } else { 1.0 }, if selected { tokens.accent } else { tokens.field_border }),
-                    StrokeKind::Outside,
-                );
-            }
-            let bg_response = ui.interact(bg, ui.id().with("artist-bg"), Sense::click()).on_hover_text(tl!("Background Color"));
-            let fg_response = ui.interact(fg, ui.id().with("artist-fg"), Sense::click()).on_hover_text(tl!("Foreground Color"));
-            fg_response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Foreground Color")));
-            bg_response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Background Color")));
-            if fg_response.clicked() {
-                app.ui.color_panel.background = false;
-            } else if bg_response.clicked() {
-                app.ui.color_panel.background = true;
-            }
-            if fg_response.double_clicked() || bg_response.double_clicked() {
-                crate::color_picker_ui::open(app, if app.ui.color_panel.background { "background" } else { "foreground" });
-            }
+    let width = ui.available_width().max(1.0);
+    const READOUT: f32 = 254.0;
+    let inline = width >= 414.0;
+    let readout_width = width.min(READOUT);
+    let readout_height = if readout_width >= READOUT {
+        24.0
+    } else if readout_width >= 138.0 {
+        50.0
+    } else {
+        102.0
+    };
+    let height = if inline { 28.0 } else { 30.0 + readout_height };
+    let (bounds, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+    let rect = Rect::from_min_size(bounds.min, vec2(42.0, 28.0));
+    let bg = Rect::from_min_size(rect.min + vec2(16.0, 7.0), vec2(22.0, 20.0));
+    let fg = Rect::from_min_size(rect.min + vec2(2.0, 1.0), vec2(25.0, 23.0));
+    for (r, color, selected) in
+        [(bg, app.session.tools.background, app.ui.color_panel.background), (fg, app.session.tools.foreground, !app.ui.color_panel.background)]
+    {
+        let [r8, g8, b8] = panels::srgb_bytes(color);
+        ui.painter().rect_filled(r, 3.0, Color32::from_rgb(r8, g8, b8));
+        ui.painter().rect_stroke(
+            r,
+            3.0,
+            Stroke::new(if selected { 2.0 } else { 1.0 }, if selected { tokens.accent } else { tokens.field_border }),
+            StrokeKind::Outside,
+        );
+    }
+    let bg_response = ui.interact(bg, ui.id().with("artist-bg"), Sense::click()).on_hover_text(tl!("Background Color"));
+    let fg_response = ui.interact(fg, ui.id().with("artist-fg"), Sense::click()).on_hover_text(tl!("Foreground Color"));
+    fg_response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Foreground Color")));
+    bg_response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Background Color")));
+    if fg_response.clicked() {
+        app.ui.color_panel.background = false;
+    } else if bg_response.clicked() {
+        app.ui.color_panel.background = true;
+    }
+    if fg_response.double_clicked() || bg_response.double_clicked() {
+        crate::color_picker_ui::open(app, if app.ui.color_panel.background { "background" } else { "foreground" });
+    }
+    let swap = Rect::from_min_size(bounds.min + vec2(46.0, 2.0), vec2(24.0, 24.0));
+    let response = ui.interact(swap, ui.id().with("artist-swap"), Sense::click()).on_hover_text(tl!("Swap colours (X)"));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Swap colours (X)")));
+    let ink = crate::icons::button_chrome(ui, swap, false, response.hovered());
+    crate::swap_arrow::paint(ui.painter(), swap.center() - vec2(6.5, 6.5), ink);
+    if response.clicked() && app.run("tools.swapColors", serde_json::json!({})).is_ok() {
+        crate::type_tool::foreground_changed(app);
+    }
+    for (index, picker, label) in [(0, Picker::Wheel, tl!("Wheel")), (1, Picker::Rectangle, tl!("Field"))] {
+        let rect = Rect::from_min_size(egui::pos2(bounds.right() - 52.0 + index as f32 * 28.0, bounds.top() + 2.0), vec2(24.0, 24.0));
+        let selected = app.ui.color_panel.picker == picker;
+        let response = ui.interact(rect, ui.id().with(("artist-picker", index)), Sense::click()).on_hover_text(label);
+        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, label));
+        let ink = crate::icons::button_chrome(ui, rect, selected, response.hovered());
+        let icon = rect.shrink(6.0);
+        if picker == Picker::Wheel {
+            ui.painter()
+                .add(egui::Shape::closed_line(vec![icon.left_bottom(), egui::pos2(icon.center().x, icon.top()), icon.right_bottom()], Stroke::new(1.5, ink)));
+        } else {
+            ui.painter().rect_stroke(icon, 0.0, Stroke::new(1.5, ink), StrokeKind::Inside);
         }
-        ui.selectable_value(&mut app.ui.color_panel.picker, Picker::Wheel, tl!("Wheel"));
-        ui.selectable_value(&mut app.ui.color_panel.picker, Picker::Rectangle, tl!("Field"));
-        if ui.small_button("⇄").on_hover_text(tl!("Swap colours (X)")).clicked() && app.run("tools.swapColors", serde_json::json!({})).is_ok() {
-            crate::type_tool::foreground_changed(app);
+        if response.clicked() {
+            app.ui.color_panel.picker = picker;
         }
-    });
+    }
+    // The centre stays centred in the panel until it would touch either edge group.
+    let x = if inline {
+        (bounds.center().x - READOUT * 0.5).clamp(bounds.left() + 78.0, bounds.right() - 60.0 - READOUT)
+    } else {
+        bounds.center().x - readout_width * 0.5
+    };
+    let readout = Rect::from_min_size(egui::pos2(x, bounds.top() + if inline { 2.0 } else { 30.0 }), vec2(readout_width, readout_height));
+    let mut fields = ui.new_child(egui::UiBuilder::new().id_salt("color-header-readout").max_rect(readout));
+    fields.set_clip_rect(readout.intersect(ui.clip_rect()));
+    let mut color = active(app);
+    if panels::color_readout(&mut fields, ui.id().with(("color-field", app.ui.color_panel.background)), &mut color) {
+        set_color(app, color);
+    }
 }
 
 /// The existing panel ellipsis owns presentation options in both native and custom docks.

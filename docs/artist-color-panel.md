@@ -60,3 +60,10 @@ or claim that all suggested display colours can be printed in CMYK.
 
 Automation fields: `harmony_ring` (boolean), `harmony_mode` (`related` or `rgb`). Both are
 serialized with the Color panel state. Turning the ring off restores the triangle's space.
+
+## Responsive header
+
+Foreground/background swatches and swap stay left; editable HEX/RGB sits centrally;
+triangle and square buttons select wheel and field on the right. Below 414 points,
+HEX/RGB moves to a centred second row and channel groups wrap together in narrower
+docks. Both picker modes share the header swatches; the selector has no duplicate readout.
