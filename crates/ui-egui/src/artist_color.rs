@@ -127,6 +127,12 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     };
     let hue_key = Id::new(("color-field-hue", background));
     if selector_rect.height() > 1.0 {
+        // Keep the rectangular field clear of the header, history and dock edges.
+        let selector_rect = if app.ui.color_panel.picker == Picker::Rectangle {
+            selector_rect.shrink2(vec2(6.0_f32.min(selector_rect.width() * 0.1), 6.0_f32.min(selector_rect.height() * 0.1)))
+        } else {
+            selector_rect
+        };
         let mut selector_ui = ui.new_child(egui::UiBuilder::new().id_salt("color-selector").max_rect(selector_rect));
         selector_ui.set_clip_rect(selector_rect.intersect(ui.clip_rect()));
         if app.ui.color_panel.picker == Picker::Wheel {
@@ -239,7 +245,7 @@ fn header(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     if response.clicked() && app.run("tools.swapColors", serde_json::json!({})).is_ok() {
         crate::type_tool::foreground_changed(app);
     }
-    for (index, picker, label) in [(0, Picker::Wheel, tl!("Wheel")), (1, Picker::Rectangle, tl!("Field"))] {
+    for (index, picker, label) in [(0, Picker::Wheel, tl!("Triangle")), (1, Picker::Rectangle, tl!("Square"))] {
         let rect = Rect::from_min_size(egui::pos2(bounds.right() - 52.0 + index as f32 * 28.0, bounds.top() + 2.0), vec2(24.0, 24.0));
         let selected = app.ui.color_panel.picker == picker;
         let response = ui.interact(rect, ui.id().with(("artist-picker", index)), Sense::click()).on_hover_text(label);
@@ -475,7 +481,14 @@ fn wheel(ui: &mut egui::Ui, hsv: &mut egui::ecolor::Hsva, diameter: f32, rotate:
     ui.painter().add(mesh);
     let tokens = Tokens::get(ui.ctx());
     ui.painter().add(egui::Shape::closed_line(vertices.to_vec(), Stroke::new(1.0, tokens.separator)));
-    marker(ui, center + direction(hsv.h) * ((inner + outer) * 0.5), ((outer - inner) * 0.34).clamp(3.0, 7.0));
+    let hue_marker = center + direction(hsv.h) * ((inner + outer) * 0.5);
+    if rotate {
+        // Draw beneath the marker, linking the pure-hue vertex to its exact hue on the ring.
+        let pointer = [hue_vertex, hue_marker];
+        ui.painter().line_segment(pointer, Stroke::new(3.5, Color32::from_black_alpha(210)));
+        ui.painter().line_segment(pointer, Stroke::new(1.5, Color32::WHITE));
+    }
+    marker(ui, hue_marker, ((outer - inner) * 0.34).clamp(3.0, 7.0));
     marker(ui, at(hsv.s * hsv.v, (1.0 - hsv.s) * hsv.v), 4.5);
     changed
 }

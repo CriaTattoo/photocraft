@@ -74,3 +74,7 @@ The history + menu saves only the latest valid history entry, highlighted with a
 It previews that color and lets the user choose an existing Swatches group or name a new one.
 The action uses the existing swatches.newGroup/swatches.add commands and preset persistence;
 it does not save the entire history or change the active painting color. Empty history disables +.
+
+Picker button tooltips use Triangle and Square. The square selector has a six-point
+responsive inset on every side. With Rotate Triangle enabled, a contrasting pointer
+connects its pure-hue vertex to the outer hue marker and updates during hue drags.
