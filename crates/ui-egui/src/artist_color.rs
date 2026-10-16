@@ -509,13 +509,12 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
-        if ui.small_button("+").on_hover_text(tl!("Keep Current Color")).clicked() {
-            remember(app, active(app));
-        }
+        save_recent_menu(app, ui);
         let size = ((ui.available_width() - 22.0) / 12.0).clamp(1.0, 64.0);
-        for color in app.ui.color_panel.recent.into_iter() {
+        let latest = app.ui.color_panel.recent.iter().position(|color| valid_recent(*color).is_some());
+        for (index, color) in app.ui.color_panel.recent.into_iter().enumerate() {
             let (rect, response) = ui.allocate_exact_size(vec2(size, 24.0), Sense::click());
-            let valid = color.filter(|c| c.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)));
+            let valid = valid_recent(color);
             let fill = valid
                 .map(|c| {
                     let [r, g, b] = panels::srgb_bytes(c);
@@ -524,9 +523,16 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 .unwrap_or(tokens.field);
             ui.painter().rect_filled(rect, 3.0, fill);
             ui.painter().rect_stroke(rect, 3.0, Stroke::new(1.0, tokens.field_border), StrokeKind::Inside);
+            if latest == Some(index) {
+                // A dark inset separates the accent outline even from a matching swatch colour.
+                ui.painter().rect_stroke(rect.shrink(1.0), 3.0, Stroke::new(3.0, tokens.field), StrokeKind::Inside);
+                ui.painter().rect_stroke(rect, 3.0, Stroke::new(2.0, tokens.accent), StrokeKind::Inside);
+            }
             if let Some(color) = valid {
                 let [r, g, b] = panels::srgb_bytes(color);
-                let response = response.on_hover_text(format!("#{r:02X}{g:02X}{b:02X}"));
+                let hex = format!("#{r:02X}{g:02X}{b:02X}");
+                let tip = if latest == Some(index) { format!("{hex} — {}", tl!("Latest color: saved with +")) } else { hex };
+                let response = response.on_hover_text(tip);
                 response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("#{r:02X}{g:02X}{b:02X}")));
                 if response.clicked() {
                     set_color(app, color);
@@ -534,4 +540,63 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         }
     });
+}
+
+fn valid_recent(color: Option<[f32; 4]>) -> Option<[f32; 4]> {
+    color.filter(|c| c.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)))
+}
+
+/// Save exactly the most recent swatch, using the existing preset commands and persistence.
+fn save_recent_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let latest = app.ui.color_panel.recent.iter().find_map(|color| valid_recent(*color));
+    ui.add_enabled_ui(latest.is_some(), |ui| {
+        ui.menu_button("+", |ui| {
+            let Some(color) = latest else { return };
+            let [r, g, b] = panels::srgb_bytes(color);
+            let hex = format!("#{r:02X}{g:02X}{b:02X}");
+            ui.label(tl!("Save latest color to Swatches"));
+            ui.horizontal(|ui| {
+                let (rect, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+                ui.painter().rect_filled(rect, 3.0, Color32::from_rgb(r, g, b));
+                ui.label(&hex);
+            });
+            ui.separator();
+            ui.label(tl!("Existing group"));
+            let groups: Vec<String> = app.session.presets.swatches.iter().map(|group| group.name.clone()).collect();
+            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                for group in groups {
+                    if ui.button(&group).clicked() && save_recent_swatch(app, &group, &hex) {
+                        ui.close();
+                    }
+                }
+            });
+            ui.separator();
+            ui.label(tl!("New group"));
+            let id = ui.id().with("recent-swatch-new-group");
+            let mut name = ui.data(|data| data.get_temp::<String>(id)).unwrap_or_default();
+            ui.add(egui::TextEdit::singleline(&mut name).hint_text(tl!("Group name")).char_limit(128).desired_width(180.0));
+            ui.data_mut(|data| data.insert_temp(id, name.clone()));
+            if ui.add_enabled(!name.trim().is_empty(), egui::Button::new(tl!("Create group and save color"))).clicked()
+                && let Some(result) = crate::preset_panels::run(app, "swatches.newGroup", serde_json::json!({"name": name.trim()}))
+                && let Some(group) = result.get("group").and_then(serde_json::Value::as_str)
+                && save_recent_swatch(app, group, &hex)
+            {
+                ui.data_mut(|data| data.remove::<String>(id));
+                ui.close();
+            }
+        })
+        .response
+        .on_hover_text(tl!("Save latest color to Swatches"));
+    });
+}
+
+fn save_recent_swatch(app: &mut PhotocraftApp, group: &str, hex: &str) -> bool {
+    let Some(result) = crate::preset_panels::run(app, "swatches.add", serde_json::json!({"group": group, "name": hex, "color": hex})) else { return false };
+    if let Some(name) = result.get("name").and_then(serde_json::Value::as_str) {
+        app.ui.presets_ui.selected.insert(crate::swatches_ui::PANEL.into(), name.to_string());
+    }
+    app.ui.presets_ui.toggled.remove(&format!("swatches/{group}"));
+    app.ui.status_error = false;
+    app.ui.status = crate::i18n::fmt(tl!("Saved color {color} to group {group}"), &[("color", hex), ("group", group)]);
+    true
 }

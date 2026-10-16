@@ -67,3 +67,10 @@ Foreground/background swatches and swap stay left; editable HEX/RGB sits central
 triangle and square buttons select wheel and field on the right. Below 414 points,
 HEX/RGB moves to a centred second row and channel groups wrap together in narrower
 docks. Both picker modes share the header swatches; the selector has no duplicate readout.
+
+## Save the latest recent color
+
+The history + menu saves only the latest valid history entry, highlighted with an accent border.
+It previews that color and lets the user choose an existing Swatches group or name a new one.
+The action uses the existing swatches.newGroup/swatches.add commands and preset persistence;
+it does not save the entire history or change the active painting color. Empty history disables +.
