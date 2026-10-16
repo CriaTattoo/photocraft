@@ -1,11 +1,12 @@
 # Color panel for illustration
 
 The Color tab now defaults to an sRGB hue wheel with an inner saturation/value triangle.
-The triangle has pure hue on the right, white at the upper left and black at the lower left.
+By default the pure-hue corner follows the ring marker; a contrasting pointer connects them.
+With rotation disabled, pure hue is on the right, white at the upper left and black at the lower left.
 Drag the ring to change hue, or the triangle to mix the selected hue with white and black.
 The gesture stays with the control where it started, even if the pointer crosses another area.
 
-- **Wheel / Field** switches between the circular selector and the rectangular selector.
+- **Triangle / Square** icon buttons switch between the circular selector and the rectangular selector.
 - Click the foreground or background swatch to select which brush colour to edit. Double-click
   opens the existing full Color Picker dialog. The swap button uses the existing colour command.
 - The existing panel **ellipsis menu** holds HSB visibility, recent colours, triangle rotation,
@@ -18,9 +19,10 @@ The gesture stays with the control where it started, even if the pointer crosses
 - The **Recent Colors** menu option shows or hides the history without clearing its colours.
   The selector uses the space released when history is hidden.
 - **Recent Colors** remembers up to twelve distinct colours. A drag adds its final colour instead
-  of every intermediate sample. Click a swatch to reuse it; **+** keeps the current colour explicitly.
+  of every intermediate sample. Click a swatch to reuse it; **+** saves only the latest recent colour
+  (accent border) to an existing or newly named Swatches group.
 - The circular selector grows with the panel while preserving its shape. The layout reserves
-  the editable footer first and shrinks the selector in short panels, keeping HEX/RGB, HSB and
+  the header and HSB/history controls first and shrinks the selector in short panels, keeping HEX/RGB, HSB and
   recent swatches visible without scrolling the entire panel. Short, wide panels place the
   selector beside the controls; taller panels place the controls below it. The rectangular selector also
   uses the remaining height. Recent swatches use a single compact row.
@@ -78,3 +80,14 @@ it does not save the entire history or change the active painting color. Empty h
 Picker button tooltips use Triangle and Square. The square selector has a six-point
 responsive inset on every side. With Rotate Triangle enabled, a contrasting pointer
 connects its pure-hue vertex to the outer hue marker and updates during hue drags.
+
+## Visual comparison
+
+These user-supplied PhotoCraft screenshots show the original panel and the accepted result.
+They use different themes, panel sizes and selected colours; this is a feature comparison,
+not a matched pixel comparison. The after capture comes from the accepted Windows build
+which also has independent workspace changes; this contribution contains only the Color panel.
+
+| Before | After |
+| --- | --- |
+| ![Original Color panel](images/artist-color-panel/before.png) | ![Illustration Color panel](images/artist-color-panel/after.png) |
